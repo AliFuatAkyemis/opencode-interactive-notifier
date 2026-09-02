@@ -286,13 +286,13 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
         killDialog(event.properties?.requestID)
       } else if (event.type === "session.created") {
         const props = event.properties as { parentID?: string }
-        if (!props?.parentID) void handleEventNotification(`Started · ${projectName}`, projectName)
+        if (!props?.parentID) void handleEventNotification(`Started · ${projectName}`, "")
       } else if (event.type === "session.idle") {
-        void handleEventNotification(`Completed · ${projectName}`, projectName, ["jump=Jump to terminal"], focusTerminalWindow)
+        void handleEventNotification(`Completed · ${projectName}`, "", ["jump=Jump to terminal"], focusTerminalWindow)
       } else if (event.type === "session.error") {
         const props = event.properties as { error?: { name?: string } }
         const errName = props?.error?.name ? `: ${props.error.name}` : ""
-        void handleEventNotification(`Error · ${projectName}`, `${projectName}${errName}`)
+        void handleEventNotification(`Error · ${projectName}`, errName.trim() ? `Error${errName}` : "")
       }
     },
   }
