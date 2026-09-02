@@ -1,4 +1,4 @@
-# opencode-kde-interactive
+# opencode-interactive-notifier
 
 KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permission requests and questions show up as native Plasma banners with action buttons; answers are sent back to opencode.
 
@@ -17,14 +17,14 @@ KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permis
 ## Install
 
 ```
-opencode plugin add opencode-kde-interactive
+opencode plugin add opencode-interactive-notifier
 ```
 
 Or add to `opencode.jsonc`:
 
 ```jsonc
 {
-  "plugin": ["opencode-kde-interactive"]
+  "plugin": ["opencode-interactive-notifier"]
 }
 ```
 
