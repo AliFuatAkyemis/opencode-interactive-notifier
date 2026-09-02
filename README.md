@@ -1,6 +1,6 @@
 # opencode-interactive-notifier
 
-KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permission requests and questions show up as native Plasma banners with action buttons; answers are sent back to opencode.
+KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permission requests, questions, and session events (started / completed / error) show up as native Plasma banners with action buttons; answers are sent back to opencode.
 
 ## Features
 
