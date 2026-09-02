@@ -1,6 +1,6 @@
 {
   "name": "opencode-interactive-notifier",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "KDE Plasma interactive notifications for opencode: permission and question prompts as native banners with kdialog fallback",
   "type": "module",
   "license": "MIT",
