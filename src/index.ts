@@ -1,16 +1,8 @@
 import { spawn, execFileSync } from "node:child_process"
-import { existsSync, readFileSync, appendFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { OpencodeClient } from "@opencode-ai/sdk/v2/client"
-
-const LOG = join(homedir(), ".config", "opencode", "kde-interactive.log")
-
-function log(...args: unknown[]) {
-  try {
-    appendFileSync(LOG, `[${new Date().toISOString()}] ${args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ")}\n`)
-  } catch {}
-}
 
 type Config = {
   enabled?: boolean
@@ -124,7 +116,6 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
 }) => {
   const config = loadConfig()
   const v2 = new OpencodeClient({ client: client._client ?? client })
-  log("plugin init", { hasServerUrl: !!serverUrl, serverUrl: serverUrl?.toString(), directory })
   const active: Map<string, ReturnType<typeof spawn>> = new Map()
 
   const killDialog = (requestID: string) => {
@@ -149,7 +140,7 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
     const command = meta.command ?? meta.cmd ?? meta.pattern
     if (command !== undefined) {
       lines.push("")
-      lines.push(`Komut: ${String(command)}`)
+      lines.push(`Command: ${String(command)}`)
     }
     const extra = (Object.keys(meta) as string[])
       .filter((k) => !["tool", "callID", "messageID", "sessionID", "command", "cmd", "pattern"].includes(k))
@@ -172,31 +163,23 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
       const timeout = config.timeout ? config.timeout * 1000 : undefined
       const res = await runBanner(title, text, ["once=Allow once", "always=Always allow", "reject=Reject"], timeout)
       active.set(p.id, res.proc)
-      log("permission banner result", { code: res.code, out: res.out })
       const reply = res.out as "once" | "always" | "reject"
       if (res.code === 0 && ["once", "always", "reject"].includes(reply)) {
         await v2.permission.reply({ requestID: p.id, reply, directory })
-        log("permission reply sent", { requestID: p.id, reply })
-      } else {
-        log("permission banner timeout/closed", { requestID: p.id })
       }
-    } catch (e) {
-      log("permission banner ERROR", { requestID: p.id, error: (e as Error).message })
-    }
+    } catch {}
     active.delete(p.id)
   }
 
   const CUSTOM_LABEL = "Type your own answer…"
 
-const askQuestion = async (q: QuestionInfo): Promise<{ cancelled: boolean; answers: string[] }> => {
-    log("askQuestion start", { question: q.question, options: q.options, multiple: q.multiple, custom: q.custom })
+  const askQuestion = async (q: QuestionInfo): Promise<{ cancelled: boolean; answers: string[] }> => {
     if (q.options && q.options.length) {
       const labels = q.options.map((o) => o.label)
       if (q.multiple) {
         const args = ["--title", "OpenCode — Question", "--checklist", q.question]
         for (const label of labels) args.push(label, "off")
         const res = await runKdialog(args)
-        log("checklist result", { code: res.code, out: res.out })
         if (res.code === 0 && res.out) return { cancelled: false, answers: res.out.split(/\s+/) }
         return { cancelled: true, answers: [] }
       } else {
@@ -205,11 +188,9 @@ const askQuestion = async (q: QuestionInfo): Promise<{ cancelled: boolean; answe
         const custom = q.custom !== false
         if (custom) args.push(CUSTOM_LABEL, CUSTOM_LABEL)
         const res = await runKdialog(args)
-        log("menu result", { code: res.code, out: res.out })
         if (res.code !== 0) return { cancelled: true, answers: [] }
         if (res.out === CUSTOM_LABEL) {
           const input = await runKdialog(["--title", "OpenCode — Question", "--inputbox", q.question, ""])
-          log("custom inputbox result", { code: input.code, out: input.out })
           if (input.code === 0) return { cancelled: false, answers: [input.out] }
           return { cancelled: true, answers: [] }
         }
@@ -217,7 +198,6 @@ const askQuestion = async (q: QuestionInfo): Promise<{ cancelled: boolean; answe
       }
     }
     const res = await runKdialog(["--title", "OpenCode — Question", "--inputbox", q.question, ""])
-    log("inputbox result", { code: res.code, out: res.out })
     if (res.code === 0) return { cancelled: false, answers: [res.out] }
     return { cancelled: true, answers: [] }
   }
@@ -236,9 +216,7 @@ const askQuestion = async (q: QuestionInfo): Promise<{ cancelled: boolean; answe
       const timeout = config.timeout ? config.timeout * 1000 : undefined
       const res = await runBanner("OpenCode — Question", body, ["answer=Answer"], timeout)
       active.set(q.id, res.proc)
-      log("question banner result", { code: res.code, out: res.out })
       if (res.code !== 0 || res.out !== "answer") {
-        log("question banner timeout/closed", { requestID: q.id })
         active.delete(q.id)
         return
       }
@@ -246,18 +224,11 @@ const askQuestion = async (q: QuestionInfo): Promise<{ cancelled: boolean; answe
       const answers: string[][] = []
       for (const question of q.questions) {
         const { cancelled, answers: answer } = await askQuestion(question)
-        if (cancelled) {
-          log("question cancelled", { requestID: q.id, question: question.question })
-          return
-        }
+        if (cancelled) return
         answers.push(answer)
       }
-      log("question reply attempt", { requestID: q.id, answers, directory })
-      const result = await v2.question.reply({ requestID: q.id, answers, directory })
-      log("question reply result", result)
-    } catch (e) {
-      log("question reply ERROR", { requestID: q.id, error: (e as Error).message, stack: (e as Error).stack })
-    }
+      await v2.question.reply({ requestID: q.id, answers, directory })
+    } catch {}
   }
 
   return {
