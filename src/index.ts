@@ -51,13 +51,27 @@ function runBanner(title: string, body: string, actions: string[], timeoutMs?: n
   return runCmd("notify-send", args, timeoutMs)
 }
 
+function hasTool(bin: string): boolean {
+  try {
+    execFileSync("which", [bin], { timeout: 1000, stdio: ["ignore", "pipe", "ignore"] })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const WINDOW_TOOL = hasTool("kdotool") ? "kdotool" : hasTool("xdotool") ? "xdotool" : null
+
 function activeWindowIsThisSession(): boolean {
   try {
-    const activeId = execFileSync("kdotool", ["getactivewindow"], { timeout: 1000, stdio: ["ignore", "pipe", "ignore"] })
+    if (!WINDOW_TOOL) return false
+    const tool = WINDOW_TOOL === "kdotool" ? ["getactivewindow"] : ["getactivewindow"]
+    const activeId = execFileSync(WINDOW_TOOL, tool, { timeout: 1000, stdio: ["ignore", "pipe", "ignore"] })
       .toString()
       .trim()
     if (!activeId) return false
-    const activePid = execFileSync("kdotool", ["getwindowpid", activeId], {
+    const pidCmd = WINDOW_TOOL === "kdotool" ? ["getwindowpid", activeId] : ["getwindowpid", activeId]
+    const activePid = execFileSync(WINDOW_TOOL, pidCmd, {
       timeout: 1000,
       stdio: ["ignore", "pipe", "ignore"],
     })
@@ -91,11 +105,13 @@ const TERMINAL_CLASSES = ["alacritty", "konsole", "ghostty", "kitty", "wezterm",
 
 function focusTerminalWindow(): void {
   try {
+    if (!WINDOW_TOOL) return
     let pid = process.ppid
     for (let i = 0; i < 10; i++) {
       if (pid <= 1) break
       try {
-        const matches = execFileSync("kdotool", ["search", "--pid", String(pid)], {
+        const searchArgs = WINDOW_TOOL === "kdotool" ? ["search", "--pid", String(pid)] : ["search", "--pid", String(pid)]
+        const matches = execFileSync(WINDOW_TOOL, searchArgs, {
           timeout: 1500,
           stdio: ["ignore", "pipe", "ignore"],
         })
@@ -105,7 +121,8 @@ function focusTerminalWindow(): void {
         for (const id of ids) {
           let cls = ""
           try {
-            cls = execFileSync("kdotool", ["getwindowclassname", id], {
+            const clsArgs = WINDOW_TOOL === "kdotool" ? ["getwindowclassname", id] : ["getwindowclassname", id]
+            cls = execFileSync(WINDOW_TOOL, clsArgs, {
               timeout: 1000,
               stdio: ["ignore", "pipe", "ignore"],
             })
@@ -114,7 +131,8 @@ function focusTerminalWindow(): void {
               .toLowerCase()
           } catch {}
           if (TERMINAL_CLASSES.some((t) => cls.includes(t))) {
-            execFileSync("kdotool", ["windowactivate", id], { timeout: 1500, stdio: ["ignore", "pipe", "ignore"] })
+            const actArgs = WINDOW_TOOL === "kdotool" ? ["windowactivate", id] : ["windowactivate", id]
+            execFileSync(WINDOW_TOOL, actArgs, { timeout: 1500, stdio: ["ignore", "pipe", "ignore"] })
             return
           }
         }

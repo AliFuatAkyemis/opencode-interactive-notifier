@@ -13,7 +13,14 @@ KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permis
 ## Requirements
 
 - KDE Plasma (Wayland recommended)
-- `kdialog`, `notify-send`, `kdotool` (KDE scripts / kdotool for focus detection)
+- `kdialog`, `notify-send`
+- One of the following for focus detection / jump-to-terminal:
+  - `kdotool` (KDE/Wayland, recommended)
+  - `xdotool` (X11 fallback)
+
+If neither `kdotool` nor `xdotool` is installed, the plugin still works:
+banners and dialogs are shown for every event (focus-aware suppression
+and the "Jump to terminal" action are disabled).
 
 ## Install
 
