@@ -38,9 +38,10 @@ Or add to `opencode.jsonc`:
 }
 ```
 
-## Configuration
+## Configuration (optional)
 
-Create `~/.config/opencode/kde-interactive.json`:
+The plugin works with sensible defaults out of the box. To customize,
+create `~/.config/opencode/opencode-interactive-notifier.json`:
 
 ```json
 {
