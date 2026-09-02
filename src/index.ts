@@ -51,40 +51,40 @@ function runBanner(title: string, body: string, actions: string[], timeoutMs?: n
   return runCmd("notify-send", args, timeoutMs)
 }
 
-function terminalFocused(): boolean {
+function activeWindowIsThisSession(): boolean {
   try {
-    const out = execFileSync("kdotool", ["getactivewindow"], { timeout: 1000, stdio: ["ignore", "pipe", "ignore"] })
+    const activeId = execFileSync("kdotool", ["getactivewindow"], { timeout: 1000, stdio: ["ignore", "pipe", "ignore"] })
       .toString()
       .trim()
-    if (!out) return false
-    let name = ""
-    try {
-      name = execFileSync("kdotool", ["getwindowclassname", out], {
-        timeout: 1000,
-        stdio: ["ignore", "pipe", "ignore"],
-      })
-        .toString()
-        .trim()
-        .toLowerCase()
-    } catch {}
-    if (!name) {
-      name = execFileSync("kdotool", ["getwindowname", out], {
-        timeout: 1000,
-        stdio: ["ignore", "pipe", "ignore"],
-      })
-        .toString()
-        .trim()
-        .toLowerCase()
+    if (!activeId) return false
+    const activePid = execFileSync("kdotool", ["getwindowpid", activeId], {
+      timeout: 1000,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim()
+    if (!activePid) return false
+    let pid = process.ppid
+    for (let i = 0; i < 10; i++) {
+      if (pid === Number(activePid)) return true
+      if (pid <= 1) break
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8")
+        const m = stat.match(/\)\s+\w+\s+(\d+)/)
+        if (!m) break
+        pid = Number(m[1])
+      } catch {
+        break
+      }
     }
-    const terms = ["alacritty", "ghostty", "konsole", "kitty", "wezterm", "foot", "kitty", "urxvt", "xterm", "st-"]
-    return terms.some((t) => name.includes(t))
+    return false
   } catch {
     return false
   }
 }
 
 function shouldSuppress(config: Config): boolean {
-  return config.suppressWhenFocused !== false && terminalFocused()
+  return config.suppressWhenFocused !== false && activeWindowIsThisSession()
 }
 
 type PermissionRequest = {
