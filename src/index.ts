@@ -87,6 +87,46 @@ function shouldSuppress(config: Config): boolean {
   return config.suppressWhenFocused !== false && activeWindowIsThisSession()
 }
 
+const TERMINAL_CLASSES = ["alacritty", "konsole", "ghostty", "kitty", "wezterm", "foot", "xterm", "urxvt", "gnome-terminal"]
+
+function focusTerminalWindow(): void {
+  try {
+    let pid = process.ppid
+    for (let i = 0; i < 10; i++) {
+      if (pid <= 1) break
+      try {
+        const matches = execFileSync("kdotool", ["search", "--pid", String(pid)], {
+          timeout: 1500,
+          stdio: ["ignore", "pipe", "ignore"],
+        })
+          .toString()
+          .trim()
+        const ids = matches.split("\n").filter(Boolean)
+        for (const id of ids) {
+          let cls = ""
+          try {
+            cls = execFileSync("kdotool", ["getwindowclassname", id], {
+              timeout: 1000,
+              stdio: ["ignore", "pipe", "ignore"],
+            })
+              .toString()
+              .trim()
+              .toLowerCase()
+          } catch {}
+          if (TERMINAL_CLASSES.some((t) => cls.includes(t))) {
+            execFileSync("kdotool", ["windowactivate", id], { timeout: 1500, stdio: ["ignore", "pipe", "ignore"] })
+            return
+          }
+        }
+      } catch {}
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8")
+      const m = stat.match(/\)\s+\w+\s+(\d+)/)
+      if (!m) break
+      pid = Number(m[1])
+    }
+  } catch {}
+}
+
 type PermissionRequest = {
   id: string
   sessionID: string
@@ -132,19 +172,10 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
   }
 
   const permissionSummary = (p: PermissionRequest): { title: string; text: string } => {
-    const lines: string[] = []
-    lines.push(`Permission type: ${p.permission}`)
-    if (p.patterns && p.patterns.length) {
-      lines.push("")
-      lines.push("Request:")
-      for (const pat of p.patterns) lines.push(`  • ${pat}`)
-    }
     const meta = p.metadata ?? {}
     const command = meta.command ?? meta.cmd ?? meta.pattern
-    if (command !== undefined) {
-      lines.push("")
-      lines.push(`Command: ${String(command)}`)
-    }
+    const lines: string[] = []
+    if (command !== undefined) lines.push(`Command: ${String(command)}`)
     const extra = (Object.keys(meta) as string[])
       .filter((k) => !["tool", "callID", "messageID", "sessionID", "command", "cmd", "pattern"].includes(k))
       .map((k) => {
@@ -152,11 +183,9 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
         const s = v && typeof v === "object" ? JSON.stringify(v) : String(v)
         return `${k}: ${s}`
       })
-    if (extra.length) {
-      lines.push("")
-      lines.push(...extra)
-    }
-    return { title: "OpenCode — Permission requested", text: lines.join("\n") }
+    if (extra.length) lines.push(...extra)
+    if (!lines.length) lines.push(p.permission)
+    return { title: "Permission requested", text: lines.join("\n") }
   }
 
   const handlePermission = async (p: PermissionRequest) => {
@@ -180,27 +209,27 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
     if (q.options && q.options.length) {
       const labels = q.options.map((o) => o.label)
       if (q.multiple) {
-        const args = ["--title", "OpenCode — Question", "--checklist", q.question]
+        const args = ["--title", "Question", "--checklist", q.question]
         for (const label of labels) args.push(label, "off")
         const res = await runKdialog(args)
         if (res.code === 0 && res.out) return { cancelled: false, answers: res.out.split(/\s+/) }
         return { cancelled: true, answers: [] }
       } else {
-        const args = ["--title", "OpenCode — Question", "--menu", q.question]
+        const args = ["--title", "Question", "--menu", q.question]
         for (const label of labels) args.push(label, label)
         const custom = q.custom !== false
         if (custom) args.push(CUSTOM_LABEL, CUSTOM_LABEL)
         const res = await runKdialog(args)
         if (res.code !== 0) return { cancelled: true, answers: [] }
         if (res.out === CUSTOM_LABEL) {
-          const input = await runKdialog(["--title", "OpenCode — Question", "--inputbox", q.question, ""])
+          const input = await runKdialog(["--title", "Question", "--inputbox", q.question, ""])
           if (input.code === 0) return { cancelled: false, answers: [input.out] }
           return { cancelled: true, answers: [] }
         }
         return { cancelled: false, answers: [res.out] }
       }
     }
-    const res = await runKdialog(["--title", "OpenCode — Question", "--inputbox", q.question, ""])
+    const res = await runKdialog(["--title", "Question", "--inputbox", q.question, ""])
     if (res.code === 0) return { cancelled: false, answers: [res.out] }
     return { cancelled: true, answers: [] }
   }
@@ -211,13 +240,13 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
       const body = q.questions
         .map((question) => {
           const opts = question.options?.length
-            ? `\n${question.options.map((o) => `  • ${o.label}`).join("\n")}`
+            ? `\n${question.options.map((o, i) => `${i + 1}. ${o.label}`).join("\n")}`
             : ""
           return `${question.question}${opts}`
         })
         .join("\n")
       const timeout = config.timeout ? config.timeout * 1000 : undefined
-      const res = await runBanner("OpenCode — Question", body, ["answer=Answer"], timeout)
+      const res = await runBanner("Question", body, ["answer=Answer"], timeout)
       active.set(q.id, res.proc)
       if (res.code !== 0 || res.out !== "answer") {
         active.delete(q.id)
@@ -236,11 +265,12 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
 
   const projectName = basename(directory)
 
-  const handleEventNotification = async (title: string, body: string) => {
+  const handleEventNotification = async (title: string, body: string, actions: string[] = [], onAction?: () => void) => {
     if (shouldSuppress(config)) return
     try {
       const timeout = config.timeout ? config.timeout * 1000 : undefined
-      await runBanner(title, body, [], timeout)
+      const res = await runBanner(title, body, actions, timeout)
+      if (actions.length && res.code === 0 && res.out && onAction) onAction()
     } catch {}
   }
 
@@ -256,13 +286,13 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
         killDialog(event.properties?.requestID)
       } else if (event.type === "session.created") {
         const props = event.properties as { parentID?: string }
-        if (!props?.parentID) void handleEventNotification("OpenCode — Started", `${projectName} session started`)
+        if (!props?.parentID) void handleEventNotification(`Started · ${projectName}`, projectName)
       } else if (event.type === "session.idle") {
-        void handleEventNotification("OpenCode — Completed", `${projectName} task completed`)
+        void handleEventNotification(`Completed · ${projectName}`, projectName, ["jump=Jump to terminal"], focusTerminalWindow)
       } else if (event.type === "session.error") {
         const props = event.properties as { error?: { name?: string } }
         const errName = props?.error?.name ? `: ${props.error.name}` : ""
-        void handleEventNotification("OpenCode — Error", `${projectName} error occurred${errName}`)
+        void handleEventNotification(`Error · ${projectName}`, `${projectName}${errName}`)
       }
     },
   }
