@@ -13,13 +13,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r assets dist/",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

@@ -1,7 +1,8 @@
 import { spawn, execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 import { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
 type Config = {
@@ -42,7 +43,9 @@ function runKdialog(args: string[], timeoutMs?: number): Promise<RunResult> {
 }
 
 function runBanner(title: string, body: string, actions: string[], timeoutMs?: number): Promise<RunResult> {
+  const icon = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "opencode-logo-dark.png")
   const args = ["--app-name", "OpenCode", "-t", String(timeoutMs ?? 0), "--hint", "int:transient:1"]
+  if (existsSync(icon)) args.push("--icon", icon)
   for (const a of actions) args.push("-A", a)
   args.push(title, body)
   return runCmd("notify-send", args, timeoutMs)
