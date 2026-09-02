@@ -12,7 +12,7 @@ type Config = {
 }
 
 function loadConfig(): Config {
-  const path = join(homedir(), ".config", "opencode", "kde-interactive.json")
+  const path = join(homedir(), ".config", "opencode", "opencode-interactive-notifier.json")
   if (!existsSync(path)) return {}
   try {
     return JSON.parse(readFileSync(path, "utf8")) as Config
@@ -210,7 +210,7 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
     if (shouldSuppress(config)) return
     const { title, text } = permissionSummary(p)
     try {
-      const timeout = config.timeout ? config.timeout * 1000 : undefined
+      const timeout = (config.timeout ?? 30) * 1000
       const res = await runBanner(title, text, ["once=Allow once", "always=Always allow", "reject=Reject"], timeout)
       active.set(p.id, res.proc)
       const reply = res.out as "once" | "always" | "reject"
@@ -263,7 +263,7 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
           return `${question.question}${opts}`
         })
         .join("\n")
-      const timeout = config.timeout ? config.timeout * 1000 : undefined
+      const timeout = (config.timeout ?? 30) * 1000
       const res = await runBanner("Question", body, ["answer=Answer"], timeout)
       active.set(q.id, res.proc)
       if (res.code !== 0 || res.out !== "answer") {
@@ -286,7 +286,7 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
   const handleEventNotification = async (title: string, body: string, actions: string[] = [], onAction?: () => void) => {
     if (shouldSuppress(config)) return
     try {
-      const timeout = config.timeout ? config.timeout * 1000 : undefined
+      const timeout = (config.timeout ?? 30) * 1000
       const res = await runBanner(title, body, actions, timeout)
       if (actions.length && res.code === 0 && res.out && onAction) onAction()
     } catch {}
