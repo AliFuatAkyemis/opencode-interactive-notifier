@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join, dirname } from "node:path"
+import { join, dirname, basename } from "node:path"
 import { fileURLToPath } from "node:url"
 import { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
@@ -234,6 +234,16 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
     } catch {}
   }
 
+  const projectName = basename(directory)
+
+  const handleEventNotification = async (title: string, body: string) => {
+    if (shouldSuppress(config)) return
+    try {
+      const timeout = config.timeout ? config.timeout * 1000 : undefined
+      await runBanner(title, body, [], timeout)
+    } catch {}
+  }
+
   return {
     event: async ({ event }: { event: { type: string; properties: any } }) => {
       if (event.type === "permission.asked") {
@@ -244,6 +254,15 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
         void handleQuestion(event.properties as QuestionRequest)
       } else if (event.type === "question.replied" || event.type === "question.rejected") {
         killDialog(event.properties?.requestID)
+      } else if (event.type === "session.created") {
+        const props = event.properties as { parentID?: string }
+        if (!props?.parentID) void handleEventNotification("OpenCode — Started", `${projectName} session started`)
+      } else if (event.type === "session.idle") {
+        void handleEventNotification("OpenCode — Completed", `${projectName} task completed`)
+      } else if (event.type === "session.error") {
+        const props = event.properties as { error?: { name?: string } }
+        const errName = props?.error?.name ? `: ${props.error.name}` : ""
+        void handleEventNotification("OpenCode — Error", `${projectName} error occurred${errName}`)
       }
     },
   }

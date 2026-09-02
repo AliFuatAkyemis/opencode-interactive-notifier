@@ -6,7 +6,8 @@ KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permis
 
 - **Permissions**: banner with `Allow once` / `Always allow` / `Reject` buttons → direct reply
 - **Questions**: banner with `Answer` button → opens kdialog dialog (menu / checklist / inputbox + custom answer)
-- **Focus-aware**: suppressed when the terminal has focus (TUI already shows the prompt)
+- **Session events**: `Started`, `Completed`, `Error` banners when the terminal loses focus
+- **Focus-aware**: suppressed when this session's terminal has focus (TUI already shows the prompt)
 - **Timeout**: banners expire automatically, no reply sent
 
 ## Requirements
