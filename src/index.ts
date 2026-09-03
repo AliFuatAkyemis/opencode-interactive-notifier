@@ -110,7 +110,7 @@ function focusTerminalWindow(): void {
     for (let i = 0; i < 10; i++) {
       if (pid <= 1) break
       try {
-        const searchArgs = WINDOW_TOOL === "kdotool" ? ["search", "--pid", String(pid)] : ["search", "--pid", String(pid)]
+        const searchArgs = WINDOW_TOOL === "kdotool" ? ["search", "--all", "--pid", String(pid)] : ["search", "--pid", String(pid)]
         const matches = execFileSync(WINDOW_TOOL, searchArgs, {
           timeout: 1500,
           stdio: ["ignore", "pipe", "ignore"],
