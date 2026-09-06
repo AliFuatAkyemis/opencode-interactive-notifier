@@ -283,6 +283,11 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
 
   const projectName = basename(directory)
 
+  const withProjectHeader = (body: string): string => {
+    const header = `<b>${projectName}</b>`
+    return body ? `${header}\n${body}` : header
+  }
+
   const isRootSession = async (sessionID?: string): Promise<boolean> => {
     if (!sessionID) return true
     try {
@@ -318,12 +323,12 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
           data?: { info?: { parentID?: string } }
         }
         const info = props?.info ?? props?.data?.info
-        if (!info?.parentID) void handleEventNotification(`Started · ${projectName}`, "")
+        if (!info?.parentID) void handleEventNotification("Started", withProjectHeader(""))
       } else if (event.type === "session.idle") {
         const props = event.properties as { sessionID?: string; data?: { sessionID?: string } }
         const sessionID = props?.sessionID ?? props?.data?.sessionID
         if (await isRootSession(sessionID)) {
-          void handleEventNotification(`Completed · ${projectName}`, "", ["jump=Jump to terminal"], focusTerminalWindow)
+          void handleEventNotification("Completed", withProjectHeader(""), ["jump=Jump to terminal"], focusTerminalWindow)
         }
       } else if (event.type === "session.error") {
         const props = event.properties as {
@@ -334,7 +339,7 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
         const sessionID = props?.sessionID ?? props?.data?.sessionID
         if (await isRootSession(sessionID)) {
           const errName = (props?.error ?? props?.data?.error)?.name ? `: ${(props?.error ?? props?.data?.error)?.name}` : ""
-          void handleEventNotification(`Error · ${projectName}`, errName.trim() ? `Error${errName}` : "")
+          void handleEventNotification("Error", withProjectHeader(errName.trim() ? `Error${errName}` : ""))
         }
       }
     },
