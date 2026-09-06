@@ -283,6 +283,16 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
 
   const projectName = basename(directory)
 
+  const isRootSession = async (sessionID?: string): Promise<boolean> => {
+    if (!sessionID) return true
+    try {
+      const res = await v2.session.get({ sessionID, directory })
+      return !res?.data?.parentID
+    } catch {
+      return true
+    }
+  }
+
   const handleEventNotification = async (title: string, body: string, actions: string[] = [], onAction?: () => void) => {
     if (shouldSuppress(config)) return
     try {
@@ -303,14 +313,29 @@ export const KdeInteractivePlugin = async ({ client, serverUrl, directory }: {
       } else if (event.type === "question.replied" || event.type === "question.rejected") {
         killDialog(event.properties?.requestID)
       } else if (event.type === "session.created") {
-        const props = event.properties as { parentID?: string }
-        if (!props?.parentID) void handleEventNotification(`Started · ${projectName}`, "")
+        const props = event.properties as {
+          info?: { parentID?: string }
+          data?: { info?: { parentID?: string } }
+        }
+        const info = props?.info ?? props?.data?.info
+        if (!info?.parentID) void handleEventNotification(`Started · ${projectName}`, "")
       } else if (event.type === "session.idle") {
-        void handleEventNotification(`Completed · ${projectName}`, "", ["jump=Jump to terminal"], focusTerminalWindow)
+        const props = event.properties as { sessionID?: string; data?: { sessionID?: string } }
+        const sessionID = props?.sessionID ?? props?.data?.sessionID
+        if (await isRootSession(sessionID)) {
+          void handleEventNotification(`Completed · ${projectName}`, "", ["jump=Jump to terminal"], focusTerminalWindow)
+        }
       } else if (event.type === "session.error") {
-        const props = event.properties as { error?: { name?: string } }
-        const errName = props?.error?.name ? `: ${props.error.name}` : ""
-        void handleEventNotification(`Error · ${projectName}`, errName.trim() ? `Error${errName}` : "")
+        const props = event.properties as {
+          sessionID?: string
+          error?: { name?: string }
+          data?: { sessionID?: string; error?: { name?: string } }
+        }
+        const sessionID = props?.sessionID ?? props?.data?.sessionID
+        if (await isRootSession(sessionID)) {
+          const errName = (props?.error ?? props?.data?.error)?.name ? `: ${(props?.error ?? props?.data?.error)?.name}` : ""
+          void handleEventNotification(`Error · ${projectName}`, errName.trim() ? `Error${errName}` : "")
+        }
       }
     },
   }
