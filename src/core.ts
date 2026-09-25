@@ -120,7 +120,9 @@ export function questionFormToPrompts(form: FormInfo): FormPrompt[] {
 export function formPromptToKdialogArgs(prompt: FormPrompt): string[] {
   const title = "Question"
   if (prompt.kind === "checklist") {
-    const args = ["--title", title, "--checklist", prompt.question]
+    // --separate-output prints selected labels one per line, unquoted, so
+    // multi-word options survive round-tripping.
+    const args = ["--title", title, "--separate-output", "--checklist", prompt.question]
     for (const option of prompt.options) args.push(option, "off")
     return args
   }
@@ -131,6 +133,13 @@ export function formPromptToKdialogArgs(prompt: FormPrompt): string[] {
     return args
   }
   return ["--title", title, "--inputbox", prompt.question, ""]
+}
+
+export function parseKdialogChecklist(out: string): string[] {
+  return out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
 }
 
 /** Picked answers are parallel to form fields; multiselect fields collect arrays. */
@@ -173,4 +182,37 @@ export function buildBannerArgs(input: {
 
 export function projectName(directory: string | undefined): string {
   return basename(directory ?? "")
+}
+
+export type EventKind = "permission" | "permission.kill" | "question" | "form.settled" | "started" | "completed" | "error" | "none"
+
+/**
+ * Maps an OpenCode event type to the notifier behavior it triggers.
+ * v2.0.16 emits `session.execution.succeeded/failed`; `session.idle`,
+ * `session.status` and `session.error` are legacy types with no v2.0.16
+ * producer, kept for forward compatibility.
+ */
+export function classifyEvent(type: string): EventKind {
+  switch (type) {
+    case "permission.asked":
+      return "permission"
+    case "permission.replied":
+      return "permission.kill"
+    case "form.created":
+      return "question"
+    case "form.replied":
+    case "form.cancelled":
+      return "form.settled"
+    case "session.created":
+      return "started"
+    case "session.execution.succeeded":
+    case "session.idle":
+    case "session.status":
+      return "completed"
+    case "session.execution.failed":
+    case "session.error":
+      return "error"
+    default:
+      return "none"
+  }
 }

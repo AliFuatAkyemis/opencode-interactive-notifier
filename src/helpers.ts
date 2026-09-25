@@ -6,9 +6,10 @@ import { buildBannerArgs } from "./core.js"
 
 export type RunResult = { code: number; out: string; proc: ReturnType<typeof spawn> }
 
-export function runCmd(bin: string, args: string[], timeoutMs?: number): Promise<RunResult> {
+export function runCmd(bin: string, args: string[], timeoutMs?: number, onSpawn?: (proc: ReturnType<typeof spawn>) => void): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] })
+    onSpawn?.(proc)
     let out = ""
     const timer = timeoutMs ? setTimeout(() => proc.kill("SIGTERM"), timeoutMs) : undefined
     proc.stdout.on("data", (d) => (out += d))
@@ -21,8 +22,8 @@ export function runCmd(bin: string, args: string[], timeoutMs?: number): Promise
   })
 }
 
-export function runKdialog(args: string[], timeoutMs?: number): Promise<RunResult> {
-  return runCmd("kdialog", args, timeoutMs)
+export function runKdialog(args: string[], timeoutMs?: number, onSpawn?: (proc: ReturnType<typeof spawn>) => void): Promise<RunResult> {
+  return runCmd("kdialog", args, timeoutMs, onSpawn)
 }
 
 const iconPath = () => {
@@ -30,9 +31,15 @@ const iconPath = () => {
   return existsSync(icon) ? icon : undefined
 }
 
-export function runBanner(title: string, text: string, actions: string[], timeoutMs?: number): Promise<RunResult> {
+export function runBanner(
+  title: string,
+  text: string,
+  actions: string[],
+  timeoutMs?: number,
+  onSpawn?: (proc: ReturnType<typeof spawn>) => void,
+): Promise<RunResult> {
   const args = buildBannerArgs({ title, text, actions, timeoutMs: timeoutMs ?? 0, icon: iconPath() })
-  return runCmd("notify-send", args, timeoutMs)
+  return runCmd("notify-send", args, timeoutMs, onSpawn)
 }
 
 export function hasTool(bin: string): boolean {
@@ -46,7 +53,11 @@ export function hasTool(bin: string): boolean {
 
 export const WINDOW_TOOL = hasTool("kdotool") ? "kdotool" : hasTool("xdotool") ? "xdotool" : null
 
-export function activeWindowIsThisSession(): boolean {
+// Focus polling runs in-process with the TUI, so cache the result briefly
+// instead of spawning two subprocesses per handled event.
+const focusCache: { value: boolean; at: number } = { value: false, at: 0 }
+
+function computeFocus(): boolean {
   try {
     if (!WINDOW_TOOL) return false
     const activeId = execFileSync(WINDOW_TOOL, ["getactivewindow"], {
@@ -80,6 +91,15 @@ export function activeWindowIsThisSession(): boolean {
   } catch {
     return false
   }
+}
+
+export function activeWindowIsThisSession(ttlMs = 300): boolean {
+  const now = Date.now()
+  if (now - focusCache.at < ttlMs) return focusCache.value
+  const value = computeFocus()
+  focusCache.value = value
+  focusCache.at = now
+  return value
 }
 
 const TERMINAL_CLASSES = ["alacritty", "konsole", "ghostty", "kitty", "wezterm", "foot", "xterm", "urxvt", "gnome-terminal"]

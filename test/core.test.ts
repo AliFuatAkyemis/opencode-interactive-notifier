@@ -12,6 +12,8 @@ import {
   questionFormToPrompts,
   formPromptToKdialogArgs,
   answersToFormReply,
+  parseKdialogChecklist,
+  classifyEvent,
   bannerActions,
   buildBannerArgs,
   projectName,
@@ -158,6 +160,24 @@ test("formPromptToKdialogArgs builds kdialog argv for a menu with custom answer"
   ])
 })
 
+test("formPromptToKdialogArgs uses --separate-output for checklists", () => {
+  const args = formPromptToKdialogArgs({
+    key: "q1",
+    kind: "checklist",
+    title: "Pick many",
+    question: "Select all",
+    options: ["X", "Y Z"],
+    custom: false,
+  })
+  assert.deepEqual(args, [
+    "--title", "Question",
+    "--separate-output",
+    "--checklist", "Select all",
+    "X", "off",
+    "Y Z", "off",
+  ])
+})
+
 test("answersToFormReply maps picked answers to form reply keys", () => {
   const fields = [
     { key: "q0", type: "string" },
@@ -165,6 +185,34 @@ test("answersToFormReply maps picked answers to form reply keys", () => {
   ]
   const reply = answersToFormReply(fields, ["A", ["X", "Y"]])
   assert.deepEqual(reply, { q0: "A", q1: ["X", "Y"] })
+})
+
+test("parseKdialogChecklist splits newline output keeping multi-word labels", () => {
+  assert.deepEqual(parseKdialogChecklist("American English\n\"Oz\" English\nPlain"), [
+    "American English",
+    '"Oz" English',
+    "Plain",
+  ])
+})
+
+// --------------------------------------------------------- event classifying
+
+test("classifyEvent maps the v2.0.16 lifecycle events", () => {
+  assert.equal(classifyEvent("session.execution.succeeded"), "completed")
+  assert.equal(classifyEvent("session.execution.failed"), "error")
+  assert.equal(classifyEvent("session.execution.interrupted"), "none")
+  assert.equal(classifyEvent("session.execution.started"), "none")
+  // legacy/belt-and-braces types still recognized
+  assert.equal(classifyEvent("session.idle"), "completed")
+  assert.equal(classifyEvent("session.status"), "completed")
+  assert.equal(classifyEvent("session.error"), "error")
+  assert.equal(classifyEvent("session.created"), "started")
+  assert.equal(classifyEvent("permission.asked"), "permission")
+  assert.equal(classifyEvent("permission.replied"), "permission.kill")
+  assert.equal(classifyEvent("form.created"), "question")
+  assert.equal(classifyEvent("form.replied"), "form.settled")
+  assert.equal(classifyEvent("form.cancelled"), "form.settled")
+  assert.equal(classifyEvent("message.updated"), "none")
 })
 
 // ----------------------------------------------------------- banner actions

@@ -7,8 +7,10 @@ import {
   questionFormToPrompts,
   formPromptToKdialogArgs,
   CUSTOM_ANSWER_LABEL,
+  parseKdialogChecklist,
   answersToFormReply,
   bannerActions,
+  classifyEvent,
   projectName,
   type Config,
   type FormInfo,
@@ -32,7 +34,13 @@ type TuiTab = {
   unread?: "activity" | "error"
 }
 
-type TuiEvent = { id: string; created: number; type: string; location?: unknown; data: any }
+type TuiEvent = {
+  id: string
+  created: number
+  type: string
+  location?: { directory?: string }
+  data: any
+}
 
 type TuiContext = {
   app: { name: string; version: string; channel: string }
@@ -81,6 +89,9 @@ export function createNotifier(ctx: TuiContext): () => void {
   const project = projectName(directory)
   const timeout = (config.timeout ?? 30) * 1000
   const active: Map<string, ChildProcess> = new Map()
+  // Forms we already know were answered/dismissed (inline or elsewhere): do
+  // not fire doomed cancel/reply RPCs after settle.
+  const settled = new Set<string>()
 
   const killDialog = (requestID: string) => {
     const proc = active.get(requestID)
@@ -123,8 +134,7 @@ export function createNotifier(ctx: TuiContext): () => void {
     if (isSuppressed(rootOf(p.sessionID))) return
     const { title, text } = permissionSummary(p)
     try {
-      const res = await runBanner(title, text, bannerActions(config, "permission"), timeout)
-      active.set(p.id, res.proc)
+      const res = await runBanner(title, text, bannerActions(config, "permission"), timeout, (proc) => active.set(p.id, proc))
       if (res.code === 0 && ["once", "always", "reject"].includes(res.out)) {
         await ctx.client.permission.reply({
           sessionID: p.sessionID,
@@ -148,23 +158,28 @@ export function createNotifier(ctx: TuiContext): () => void {
       .join("\n")
   }
 
-  const dialogAnswer = async (prompt: FormPrompt): Promise<{ ok: true; value: string | string[] } | { ok: false }> => {
-    const res = await runKdialog(formPromptToKdialogArgs(prompt), timeout)
+  const dialogAnswer = async (formID: string, prompt: FormPrompt): Promise<{ ok: true; value: string | string[] } | { ok: false }> => {
+    const watch = (proc: ChildProcess) => active.set(formID, proc)
+    const res = await runKdialog(formPromptToKdialogArgs(prompt), timeout, watch)
+    active.delete(formID)
     if (res.code !== 0) return { ok: false }
     if (prompt.kind === "menu" && res.out === CUSTOM_ANSWER_LABEL) {
-      const input = await runKdialog(["--title", "Question", "--inputbox", prompt.question, ""], timeout)
+      const input = await runKdialog(["--title", "Question", "--inputbox", prompt.question, ""], timeout, watch)
+      active.delete(formID)
       if (input.code !== 0) return { ok: false }
       return { ok: true, value: input.out }
     }
-    if (prompt.kind === "checklist") return { ok: true, value: res.out ? res.out.split(/\s+/).filter(Boolean) : [] }
+    if (prompt.kind === "checklist") return { ok: true, value: parseKdialogChecklist(res.out) }
     return { ok: true, value: res.out }
   }
 
   const handleQuestion = async (form: FormInfo) => {
+    if (settled.has(form.id)) return
     if (isSuppressed(rootOf(form.sessionID))) return
     try {
-      const res = await runBanner("Question", questionBody(form), bannerActions(config, "answer"), timeout)
-      active.set(form.id, res.proc)
+      const res = await runBanner("Question", questionBody(form), bannerActions(config, "answer"), timeout, (proc) =>
+        active.set(form.id, proc),
+      )
       const answerAction = config.notificationInteraction === "buttons" ? "answer" : "default"
       if (res.code !== 0 || res.out !== answerAction) {
         active.delete(form.id)
@@ -174,17 +189,22 @@ export function createNotifier(ctx: TuiContext): () => void {
 
       const picked: Array<string | string[]> = []
       for (const prompt of questionFormToPrompts(form)) {
-        const answer = await dialogAnswer(prompt)
+        if (settled.has(form.id)) return
+        const answer = await dialogAnswer(form.id, prompt)
         if (!answer.ok) {
-          await ctx.data.session.form.cancel({ sessionID: form.sessionID, formID: form.id }).catch(() => {})
+          if (!settled.has(form.id)) {
+            await ctx.data.session.form.cancel({ sessionID: form.sessionID, formID: form.id }).catch(() => {})
+          }
           return
         }
         picked.push(answer.value)
       }
+      if (settled.has(form.id)) return
       await ctx.data.session.form
         .reply({ sessionID: form.sessionID, formID: form.id, answer: answersToFormReply(form.fields, picked) })
         .catch(() => {})
     } catch {}
+    active.delete(form.id)
   }
 
   // -- session events -------------------------------------------------------
@@ -224,9 +244,11 @@ export function createNotifier(ctx: TuiContext): () => void {
     const root = rootOf(sessionID)
     if (root !== sessionID) return
     if (isSuppressed(root)) return
-    const kind = error?.type ? `Error: ${error.type}` : "Error"
+    const lines: string[] = []
+    if (error?.type) lines.push(`Error: ${error.type}`)
+    if (error?.message) lines.push(error.message)
     try {
-      await runBanner("Error", withProject(kind), [], timeout)
+      await runBanner("Error", withProject(lines.length ? lines.join("\n") : "Error"), [], timeout)
     } catch {}
   }
 
@@ -234,32 +256,38 @@ export function createNotifier(ctx: TuiContext): () => void {
 
   const off = ctx.data.listen(({ details }) => {
     const data = details?.data ?? {}
+    // Ignore events from other workspaces/projects on a shared server so
+    // notifications and jumps stay scoped to the location this TUI runs in.
+    const eventLocation = details?.location?.directory
+    if (details?.type && ctx.location?.directory && eventLocation && eventLocation !== ctx.location.directory) return
     try {
-      switch (details.type) {
-        case "permission.asked":
+      switch (classifyEvent(details.type)) {
+        case "permission":
           void handlePermission(data)
           break
-        case "permission.replied":
+        case "permission.kill":
           killDialog(data.requestID)
           break
-        case "form.created":
-          if (isQuestionForm(data.form)) void handleQuestion(data.form)
+        case "question":
+          if (isQuestionForm(data.form)) {
+            settled.delete(data.form.id)
+            void handleQuestion(data.form)
+          }
           break
-        case "form.replied":
-        case "form.cancelled":
+        case "form.settled":
+          settled.add(data.id)
           killDialog(data.id)
           break
-        case "session.created":
+        case "started":
           void handleCreated(data.sessionID, data.parentID)
           break
-        case "session.idle":
-          void handleCompletion(data.sessionID)
+        case "completed":
+          if (!data.status || data.status.type === "idle") void handleCompletion(data.sessionID)
           break
-        case "session.status":
-          if (data.status?.type === "idle") void handleCompletion(data.sessionID)
-          break
-        case "session.error":
+        case "error":
           void handleError(data.sessionID, data.error)
+          break
+        case "none":
           break
       }
     } catch {
