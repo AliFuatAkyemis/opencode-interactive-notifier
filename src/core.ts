@@ -1,0 +1,176 @@
+import { existsSync, readFileSync } from "node:fs"
+import { join, basename } from "node:path"
+import { homedir } from "node:os"
+
+export type Config = {
+  enabled?: boolean
+  suppressWhenFocused?: boolean
+  timeout?: number
+  notificationInteraction?: "body" | "buttons"
+}
+
+export function loadConfig(filePath?: string): Config {
+  const path = filePath ?? join(homedir(), ".config", "opencode", "opencode-interactive-notifier.json")
+  if (!path || !existsSync(path)) return {}
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Config
+  } catch {
+    return {}
+  }
+}
+
+// V2 permission request shape (permission.asked event payload).
+export type PermissionRequest = {
+  id: string
+  sessionID: string
+  action?: string
+  resources?: string[]
+  save?: string[]
+  metadata?: Record<string, unknown>
+  source?: { type: "tool"; messageID: string; id: string }
+  message?: string
+}
+
+export function permissionSummary(p: PermissionRequest): { title: string; text: string } {
+  const lines: string[] = []
+  if (p.action) lines.push(`Action: ${p.action}`)
+  for (const resource of p.resources ?? []) lines.push(`Resource: ${resource}`)
+  if (p.message) lines.push(`Message: ${p.message}`)
+  const meta = p.metadata ?? {}
+  for (const [key, value] of Object.entries(meta)) {
+    if (["tool", "callID", "messageID", "sessionID", "command", "cmd", "pattern"].includes(key)) continue
+    const shown = value && typeof value === "object" ? JSON.stringify(value) : String(value)
+    lines.push(`${key}: ${shown}`)
+  }
+  if (!lines.length) lines.push(p.action || "Permission requested")
+  return { title: "Permission requested", text: lines.join("\n") }
+}
+
+export type SuppressionInput = {
+  focused: boolean
+  activeTab: string | undefined
+  root: string | undefined
+  suppressWhenFocused: boolean
+  /** Set false for startup events: never notify while focused, even from another tab. */
+  applyTabException?: boolean
+}
+
+/**
+ * True = hide the notification.
+ * Notifications are hidden only while the terminal window is focused AND the
+ * event belongs to the tab the user is currently looking at. An event from a
+ * different tab (background work) still notifies.
+ */
+export function shouldSuppressEvent({ focused, activeTab, root, suppressWhenFocused, applyTabException }: SuppressionInput): boolean {
+  if (suppressWhenFocused === false) return false
+  if (!focused) return false
+  if (applyTabException === false) return true
+  if (activeTab !== undefined && root !== undefined && activeTab !== root) return false
+  return true
+}
+
+// ------------------------------------------------------------------ forms
+
+export type FormField = {
+  key: string
+  type: string
+  title?: string
+  description?: string
+  options?: Array<{ value: string; label: string; description?: string }>
+  custom?: boolean
+}
+
+export type FormInfo = {
+  id: string
+  sessionID: string
+  title?: string
+  metadata?: Record<string, unknown>
+  fields: FormField[]
+}
+
+export function isQuestionForm(form: FormInfo): boolean {
+  return form.metadata?.kind === "question"
+}
+
+export const CUSTOM_ANSWER_LABEL = "Type your own answer…"
+
+export type FormPrompt = {
+  key: string
+  kind: "menu" | "checklist" | "inputbox"
+  title: string
+  question: string
+  options: string[]
+  custom: boolean
+}
+
+export function questionFormToPrompts(form: FormInfo): FormPrompt[] {
+  return form.fields.map((field): FormPrompt => {
+    const options = (field.options ?? []).map((option) => option.label)
+    const question = field.description || field.title || ""
+    if (field.type === "multiselect") {
+      return { key: field.key, kind: "checklist", title: field.title || "Question", question, options, custom: false }
+    }
+    if (options.length) {
+      return { key: field.key, kind: "menu", title: field.title || "Question", question, options, custom: field.custom !== false }
+    }
+    return { key: field.key, kind: "inputbox", title: field.title || "Question", question, options: [], custom: false }
+  })
+}
+
+export function formPromptToKdialogArgs(prompt: FormPrompt): string[] {
+  const title = "Question"
+  if (prompt.kind === "checklist") {
+    const args = ["--title", title, "--checklist", prompt.question]
+    for (const option of prompt.options) args.push(option, "off")
+    return args
+  }
+  if (prompt.kind === "menu") {
+    const args = ["--title", title, "--menu", prompt.question]
+    for (const option of prompt.options) args.push(option, option)
+    if (prompt.custom) args.push(CUSTOM_ANSWER_LABEL, CUSTOM_ANSWER_LABEL)
+    return args
+  }
+  return ["--title", title, "--inputbox", prompt.question, ""]
+}
+
+/** Picked answers are parallel to form fields; multiselect fields collect arrays. */
+export function answersToFormReply(fields: FormField[], picked: Array<string | string[]>): Record<string, string | string[]> {
+  const reply: Record<string, string | string[]> = {}
+  for (let index = 0; index < fields.length; index++) {
+    reply[fields[index].key] = picked[index] ?? []
+  }
+  return reply
+}
+
+// ------------------------------------------------------------------ banners
+
+export type BannerActionKind = "permission" | "jump" | "answer" | "passive"
+
+export function bannerActions(config: Pick<Config, "notificationInteraction">, kind: BannerActionKind): string[] {
+  if (kind === "permission") return ["once=Allow once", "always=Always allow", "reject=Reject"]
+  if (kind === "jump") {
+    return config.notificationInteraction === "buttons" ? ["jump=Jump to terminal"] : ["default=Jump to terminal"]
+  }
+  if (kind === "answer") {
+    return config.notificationInteraction === "buttons" ? ["answer=Answer"] : ["default=Answer"]
+  }
+  return []
+}
+
+export function buildBannerArgs(input: {
+  title: string
+  text: string
+  actions: string[]
+  timeoutMs: number
+  icon: string | undefined
+}): string[] {
+  const args = ["--app-name", "OpenCode", "-t", String(input.timeoutMs), "--hint", "int:transient:1"]
+  if (input.icon) args.push("--icon", input.icon)
+  for (const action of input.actions) args.push("-A", action)
+  args.push(input.title, input.text)
+  return args
+}
+
+export function projectName(directory: string | undefined): string {
+  return basename(directory ?? "")
+}

@@ -1,28 +1,42 @@
 # opencode-interactive-notifier
 
-KDE Plasma interactive notifications for [opencode](https://opencode.ai). Permission requests, questions, and session events (started / completed / error) show up as native Plasma banners with action buttons; answers are sent back to opencode.
+KDE Plasma interactive notifications for [opencode](https://opencode.ai) (OpenCode V2, CLI plugin). Permission requests, questions, and session events (started / completed / error) show up as native Plasma banners; answers are sent back to opencode, and the jump action focuses the terminal **and switches to the tab** that finished.
+
+## How it works
+
+OpenCode V2 separates the terminal UI (TUI/client) from the background service. The notifier runs as a **[CLI plugin](https://opencode.ai/v2/docs/build/plugins/cli)** (`./tui` entrypoint) inside the TUI process, because only the client knows terminal-window focus, the open session tabs, and can show kdialog/notify-send. The server-side entrypoint is a stub required for the TUI part to load. (Level of this doc: use the V2 plugin context via `data.listen` for server events; see below.)
 
 ## Features
 
 - **Permissions**: banner with `Allow once` / `Always allow` / `Reject` buttons → direct reply
-- **Questions**: banner with `Answer` button → opens kdialog dialog (menu / checklist / inputbox + custom answer)
-- **Session events**: `Started · <project>` / `Completed · <project>` / `Error · <project>` banners when the terminal loses focus
-- **Jump to terminal**: `Completed` banner has a button that focuses the session's terminal window
-- **Focus-aware**: suppressed when this session's terminal has focus (TUI already shows the prompt)
-- **Timeout**: banners expire automatically, no reply sent
-- **Clean format**: no decorative dashes; numbered question options; concise permission body
+- **Questions**: notification; clicking the notification **body** opens a kdialog dialog (menu / checklist / inputbox with custom answer) → form reply
+- **Session events**: `Started · <project>` / `Completed · <project>` / `Error · <project>` banners
+- **Jump to result**: clicking the `Completed` notification **body** switches the TUI to the tab whose task finished and raises the terminal window
+- **Focus-aware**: notifications are suppressed while the TUI's terminal window is focused — unless the event comes from a *different tab* (background work still notifies)
+- **Timeout**: banners expire automatically, no answer/jump performed
+
+### Notification interaction
+
+The default interaction is **body-click**: clicking a notification's body acts as the action (freedesktop "default" action, supported by Plasma). To use visible action buttons instead, set `notificationInteraction` to `"buttons"`:
+
+```json
+{
+  "notificationInteraction": "buttons"
+}
+```
+
+Permission prompts always use buttons (they are real choices).
 
 ## Requirements
 
+- OpenCode **V2** (the interactive TUI client; the plugin does not run for `opencode run` / non-interactive mode)
 - KDE Plasma (Wayland recommended)
 - `kdialog`, `notify-send`
 - One of the following for focus detection / jump-to-terminal:
   - `kdotool` (KDE/Wayland, recommended)
   - `xdotool` (X11 fallback)
 
-If neither `kdotool` nor `xdotool` is installed, the plugin still works:
-banners and dialogs are shown for every event (focus-aware suppression
-and the "Jump to terminal" action are disabled).
+If neither `kdotool` nor `xdotool` is installed, the plugin still works: banners and dialogs are shown for every event (focus-aware suppression and the tab jump are disabled).
 
 ## Install
 
@@ -38,32 +52,49 @@ Or add to `opencode.jsonc`:
 }
 ```
 
+The `./tui` entrypoint is discovered automatically by the client for any active plugin.
+
 ## Configuration (optional)
 
-The plugin works with sensible defaults out of the box. To customize,
-create `~/.config/opencode/opencode-interactive-notifier.json`:
+The plugin works with sensible defaults out of the box. To customize, create `~/.config/opencode/opencode-interactive-notifier.json`:
 
 ```json
 {
   "enabled": true,
   "suppressWhenFocused": true,
-  "timeout": 30
+  "timeout": 30,
+  "notificationInteraction": "body"
 }
 ```
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `enabled` | `true` | Master switch |
-| `suppressWhenFocused` | `true` | Skip banners when the terminal window has focus |
-| `timeout` | `30` | Banner timeout in seconds |
+| `enabled` | `true` | Set to `false` to disable the plugin entirely |
+| `suppressWhenFocused` | `true` | Suppress notifications while the TUI terminal is focused (except other-tab events; set `false` to always notify) |
+| `timeout` | `30` | Banner lifetime in seconds; no answer/jump after it expires |
+| `notificationInteraction` | `"body"` | `"body"` = notification body click activates the action; `"buttons"` = visible action buttons |
+
+## Suppression rule
+
+A notification fires when:
+
+1. the TUI terminal window does **not** have focus **or**
+2. the terminal has focus but the event belongs to a **different tab** than the one being viewed.
+
+`Started` notifications only fire while the terminal is unfocused (a new tab you just opened is right in front of you).
 
 ## Development
 
 ```
 npm install
-npm run build
+npm test        # unit tests for the pure logic (node --test)
+npm run build   # tsc → dist/, copies assets
 ```
 
-## License
+To test against your local checkout, install the plugin from the repository path:
 
-MIT
+```
+opencode plugin add /path/to/opencode-kde-interactive
+```
+
+then restart the opencode service/TUI so the client loads the new `./tui` entrypoint.

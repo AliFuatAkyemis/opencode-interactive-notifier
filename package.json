@@ -1,7 +1,7 @@
 {
   "name": "opencode-interactive-notifier",
-  "version": "0.1.13",
-  "description": "KDE Plasma interactive notifications for opencode: permission and question prompts as native banners with kdialog fallback",
+  "version": "0.3.0",
+  "description": "KDE Plasma interactive notifications for opencode (V2 CLI plugin): permission and question prompts as native banners with kdialog, plus focus-aware session notifications and jump-to-tab",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -10,6 +10,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./tui": {
+      "import": "./dist/tui.js",
+      "types": "./dist/tui.d.ts"
     }
   },
   "files": [
@@ -21,7 +25,8 @@
   },
   "scripts": {
     "build": "tsc && cp -r assets dist/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/"
   },
   "keywords": [
     "opencode",
@@ -33,12 +38,6 @@
     "permission",
     "wayland"
   ],
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.14.0"
-  },
-  "dependencies": {
-    "@opencode-ai/sdk": ">=1.14.0"
-  },
   "devDependencies": {
     "@types/node": "^26.4.1",
     "typescript": "^5.9.0"
