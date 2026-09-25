@@ -91,10 +91,12 @@ npm test        # unit tests for the pure logic (node --test)
 npm run build   # tsc → dist/, copies assets
 ```
 
-To test against your local checkout, install the plugin from the repository path:
+To test against your local checkout, load it as a directory plugin by adding a `file://` entry to the config (the repo keeps dev-only `index.ts`/`tui.ts` roots because directory plugins are resolved from those filenames, while the npm package uses `exports`):
 
-```
-opencode plugin add /path/to/opencode-kde-interactive
+```jsonc
+{
+  "plugins": ["file:///path/to/opencode-kde-interactive"]
+}
 ```
 
-then restart the opencode service/TUI so the client loads the new `./tui` entrypoint.
+Then restart the opencode service (`opencode service restart`) or start a fresh instance so the client loads the new `./tui` entrypoint. The `opencode plugin add` command only accepts npm/Git package specifiers.
