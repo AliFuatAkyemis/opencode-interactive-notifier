@@ -1,6 +1,6 @@
 {
   "name": "opencode-interactive-notifier",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "KDE Plasma interactive notifications for opencode (V2 CLI plugin): permission and question prompts as native banners with kdialog, plus focus-aware session notifications and jump-to-tab",
   "type": "module",
   "license": "MIT",
