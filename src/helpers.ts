@@ -6,13 +6,31 @@ import { buildBannerArgs } from "./core.js"
 
 export type RunResult = { code: number; out: string; proc: ReturnType<typeof spawn> }
 
-export function runCmd(bin: string, args: string[], timeoutMs?: number, onSpawn?: (proc: ReturnType<typeof spawn>) => void): Promise<RunResult> {
+export type RunOptions = {
+  timeoutMs?: number
+  onSpawn?: (proc: ReturnType<typeof spawn>) => void
+  /** Called once with the daemon notification id as soon as notify-send prints it (-p). */
+  onId?: (id: number) => void
+}
+
+export function runCmd(bin: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] })
-    onSpawn?.(proc)
+    options.onSpawn?.(proc)
     let out = ""
-    const timer = timeoutMs ? setTimeout(() => proc.kill("SIGTERM"), timeoutMs) : undefined
-    proc.stdout.on("data", (d) => (out += d))
+    let idReported = false
+    const timer = options.timeoutMs ? setTimeout(() => proc.kill("SIGTERM"), options.timeoutMs) : undefined
+    proc.stdout.on("data", (d) => {
+      out += d
+      if (options.onId && !idReported) {
+        const nl = out.indexOf("\n")
+        if (nl !== -1) {
+          idReported = true
+          const first = out.slice(0, nl).trim()
+          if (/^\d+$/.test(first)) options.onId(Number(first))
+        }
+      }
+    })
     proc.stderr.on("data", () => {})
     proc.on("error", reject)
     proc.on("close", (code) => {
@@ -22,8 +40,8 @@ export function runCmd(bin: string, args: string[], timeoutMs?: number, onSpawn?
   })
 }
 
-export function runKdialog(args: string[], timeoutMs?: number, onSpawn?: (proc: ReturnType<typeof spawn>) => void): Promise<RunResult> {
-  return runCmd("kdialog", args, timeoutMs, onSpawn)
+export function runKdialog(args: string[], options: RunOptions = {}): Promise<RunResult> {
+  return runCmd("kdialog", args, options)
 }
 
 const iconPath = () => {
@@ -35,11 +53,45 @@ export function runBanner(
   title: string,
   text: string,
   actions: string[],
-  timeoutMs?: number,
-  onSpawn?: (proc: ReturnType<typeof spawn>) => void,
+  options: RunOptions = {},
 ): Promise<RunResult> {
-  const args = buildBannerArgs({ title, text, actions, timeoutMs: timeoutMs ?? 0, icon: iconPath() })
-  return runCmd("notify-send", args, timeoutMs, onSpawn)
+  const args = buildBannerArgs({ title, text, actions, timeoutMs: options.timeoutMs ?? 0, icon: iconPath() })
+  return runCmd("notify-send", args, options)
+}
+
+/**
+ * Closes a pending notification through the freedesktop CloseNotification
+ * call so it disappears from Plasma even when notify-send already returned.
+ * Prefers busctl, falling back to dbus-send / qdbus for the same call.
+ * No-op without an id (older notify-send without -p support).
+ */
+export function closeBanner(id: number | undefined): void {
+  if (id === undefined) return
+  const idStr = String(id)
+  const close = (bin: string, args: string[]) => {
+    try {
+      spawn(bin, args, { stdio: "ignore" })
+    } catch {}
+  }
+  if (hasTool("busctl")) {
+    close("busctl", [
+      "--user", "call",
+      "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+      "org.freedesktop.Notifications", "CloseNotification",
+      "u", idStr,
+    ])
+  } else if (hasTool("dbus-send")) {
+    close("dbus-send", [
+      "--session", "--dest=org.freedesktop.Notifications",
+      "/org/freedesktop/Notifications",
+      "org.freedesktop.Notifications", "CloseNotification",
+      `uint32:${idStr}`,
+    ])
+  } else if (hasTool("qdbus6")) {
+    close("qdbus6", ["org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "CloseNotification", idStr])
+  } else {
+    close("qdbus", ["org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "CloseNotification", idStr])
+  }
 }
 
 export function hasTool(bin: string): boolean {

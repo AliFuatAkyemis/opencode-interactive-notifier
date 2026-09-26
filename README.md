@@ -12,7 +12,7 @@ OpenCode V2 separates the terminal UI (TUI/client) from the background service. 
 - **Questions**: notification; clicking the notification **body** opens a kdialog dialog (menu / checklist / inputbox with custom answer) → form reply
 - **Session events**: `Started · <project>` / `Completed · <project>` / `Error · <project>` banners
 - **Jump to result**: clicking the `Completed` notification **body** switches the TUI to the tab whose task finished and raises the terminal window
-- **Focus-aware**: notifications are suppressed while the TUI's terminal window is focused — unless the event comes from a *different tab* (background work still notifies)
+- **Focus-aware**: notifications are suppressed while the TUI's terminal window is focused — unless the event comes from a *different tab* (background work still notifies). The same rule **dismisses** a pending banner the moment you return focus to the tab it belongs to: no click, no timeout wait — it is gone the moment you are looking at the result. Focusing a *different* tab keeps the banner clickable.
 - **Timeout**: banners expire automatically, no answer/jump performed
 
 ### Notification interaction
@@ -82,6 +82,8 @@ A notification fires when:
 2. the terminal has focus but the event belongs to a **different tab** than the one being viewed.
 
 `Started` notifications only fire while the terminal is unfocused (a new tab you just opened is right in front of you).
+
+A **pending banner is dismissed** when the terminal window gains focus **and** the active tab is the banner's own tab — the exact condition that would have suppressed it at emit time. This applies to every banner, including permission and question banners: once you are back at the terminal, the answer is right in front of you in the TUI, and the dismissed banner sends no (stale) reply — the pending request simply remains answerable inline. Banners for a different tab stay until clicked, dismissed, or timed out.
 
 ## Development
 

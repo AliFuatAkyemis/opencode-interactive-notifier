@@ -17,6 +17,8 @@ import {
   bannerActions,
   buildBannerArgs,
   projectName,
+  parseBannerOut,
+  BANNER_ACTIONS,
 } from "../src/core.ts"
 
 // ---------------------------------------------------------------- loadConfig
@@ -236,7 +238,7 @@ test("bannerActions returns no actions for unknown kind", () => {
   assert.deepEqual(bannerActions({ notificationInteraction: "body" }, "passive"), [])
 })
 
-test("buildBannerArgs assembles notify-send argv with actions and icon", () => {
+test("buildBannerArgs assembles notify-send argv with actions, id print and icon", () => {
   const args = buildBannerArgs({
     title: "Completed",
     text: "project",
@@ -248,6 +250,7 @@ test("buildBannerArgs assembles notify-send argv with actions and icon", () => {
     "--app-name", "OpenCode",
     "-t", "30000",
     "--hint", "int:transient:1",
+    "-p",
     "--icon", "/tmp/icon.png",
     "-A", "default=Jump to terminal",
     "Completed", "project",
@@ -260,8 +263,42 @@ test("buildBannerArgs omits icon when absent and avoids -A for passive banners",
     "--app-name", "OpenCode",
     "-t", "0",
     "--hint", "int:transient:1",
+    "-p",
     "Started", "project",
   ])
+})
+
+// ----------------------------------------------------------- banner output
+
+test("parseBannerOut extracts numeric id and a known action line", () => {
+  assert.deepEqual(parseBannerOut("49\ndefault"), { id: 49, action: "default" })
+  assert.deepEqual(parseBannerOut("49\njump"), { id: 49, action: "jump" })
+  assert.deepEqual(parseBannerOut("22\nonce"), { id: 22, action: "once" })
+})
+
+test("parseBannerOut returns only the id when closed without an action", () => {
+  assert.deepEqual(parseBannerOut("49"), { id: 49, action: undefined })
+})
+
+test("parseBannerOut handles action-only output when -p is unsupported", () => {
+  assert.deepEqual(parseBannerOut("default"), { id: undefined, action: "default" })
+})
+
+test("parseBannerOut ignores non-action trailing text (e.g. timeout notice)", () => {
+  assert.deepEqual(parseBannerOut("49\nWait timeout expired"), { id: 49, action: undefined })
+  assert.deepEqual(parseBannerOut("Wait timeout expired"), { id: undefined, action: undefined })
+})
+
+test("parseBannerOut returns empty for blank output", () => {
+  assert.deepEqual(parseBannerOut(""), {})
+  assert.deepEqual(parseBannerOut("   \n "), {})
+  assert.deepEqual(parseBannerOut(undefined as unknown as string), {})
+})
+
+test("BANNER_ACTIONS covers every banner key the plugin reacts to", () => {
+  for (const key of ["default", "jump", "answer", "once", "always", "reject"]) {
+    assert.ok(BANNER_ACTIONS.has(key), `missing ${key}`)
+  }
 })
 
 // ------------------------------------------------------------------ misc

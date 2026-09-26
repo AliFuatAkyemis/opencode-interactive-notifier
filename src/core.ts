@@ -174,10 +174,41 @@ export function buildBannerArgs(input: {
   icon: string | undefined
 }): string[] {
   const args = ["--app-name", "OpenCode", "-t", String(input.timeoutMs), "--hint", "int:transient:1"]
+  // -p prints the daemon-assigned notification id as the first stdout line so a
+  // pending banner can be closed remotely via CloseNotification.
+  args.push("-p")
   if (input.icon) args.push("--icon", input.icon)
   for (const action of input.actions) args.push("-A", action)
   args.push(input.title, input.text)
   return args
+}
+
+// Every action key the plugin reacts to. `default` is the freedesktop body-
+// click action in "body" mode; the others are labeled buttons.
+export const BANNER_ACTIONS = new Set(["default", "jump", "answer", "once", "always", "reject"])
+
+export type BannerOut = { id?: number; action?: string }
+
+/**
+ * Parses the accumulated stdout of a notify-send banner run. With `-p` the
+ * first line is the numeric notification id; when the user activates an
+ * action notify-send appends the action key, so the last line carries the
+ * action when it is one of the keys the plugin reacts to. Also covers the
+ * legacy shape without `-p` (a single action line).
+ */
+export function parseBannerOut(out: string | undefined): BannerOut {
+  const lines = (out ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (!lines.length) return {}
+  let id: number | undefined
+  if (/^\d+$/.test(lines[0])) {
+    id = Number(lines[0])
+    lines.shift()
+  }
+  const last = lines.at(-1)
+  return { id, action: last !== undefined && BANNER_ACTIONS.has(last) ? last : undefined }
 }
 
 export function projectName(directory: string | undefined): string {
