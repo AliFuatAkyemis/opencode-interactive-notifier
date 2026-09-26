@@ -93,6 +93,12 @@ npm test        # unit tests for the pure logic (node --test)
 npm run build   # tsc → dist/, copies assets
 ```
 
+## Release
+
+Versioning is semver, enforced by `scripts/release.mjs` via
+`npm run release:patch|minor|major`. Policy, semver table, and publish
+rules live in [`AGENTS.md`](AGENTS.md) — read it before releasing.
+
 To test against your local checkout, load it as a directory plugin by adding a `file://` entry to the config (the repo keeps dev-only `index.ts`/`tui.ts` roots because directory plugins are resolved from those filenames, while the npm package uses `exports`):
 
 ```jsonc
